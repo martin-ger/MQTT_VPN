@@ -1,0 +1,523 @@
+/**************************************************************************
+ * mqtt_vpn.c                                                             *
+ *                                                                        *
+ * A simple IPv4 tunnelling program using tun interfaces and MQTT.        * 
+ *                                                                        *
+ * Based on work from Davide Brini                                        *
+ * (C) 2009 Davide Brini.                                                 *
+ *                                                                        *
+ * Uses the Paho MQTT C Client Library                                    *
+ * https://www.eclipse.org/paho/files/mqttdoc/MQTTClient/html/index.html  *
+ *                                                                        *
+ * DISCLAIMER AND WARNING: this is all work in progress. The code is      *
+ * ugly, the algorithms are naive, error checking and input validation    *
+ * are very basic, and of course there can be bugs. If that's not enough, *
+ * the program has not been thoroughly tested, so it might even fail at   *
+ * the few simple things it should be supposed to do right.               *
+ * Needless to say, I take no responsibility whatsoever for what the      *
+ * program might do. The program has been written mostly for learning     *
+ * purposes, and can be used in the hope that is useful, but everything   *
+ * is to be taken "as is" and without any kind of warranty, implicit or   *
+ * explicit. See the file LICENSE for further details.                    *
+ *************************************************************************/
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <linux/if.h>
+#include <linux/if_tun.h>
+#include <sys/types.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <arpa/inet.h>
+#include <sys/select.h>
+#include <sys/time.h>
+#include <errno.h>
+#include <stdarg.h>
+#include <time.h>
+
+#include "MQTTClient.h"
+
+/* MQTT related defs */
+#define CLIENTID_PRE "MQTT_VPN_"
+#define TOPIC_PRE "mqttip"
+#define QOS 0
+#define TIMEOUT 10000L
+
+/* buffer for reading from tun/tap interface, must be >= 1500 */
+#define BUFSIZE 2000
+#define CLIENT 0
+#define SERVER 1
+#define PORT 55555
+
+/* some common lengths */
+#define IP_HDR_LEN 20
+#define ETH_HDR_LEN 14
+#define ARP_PKT_LEN 28
+
+#define HOST "fec2::22"
+//#define ifreq_offsetof(x) offsetof(struct ifreq, x)
+
+struct in6_ifreq
+{
+  struct in6_addr ifr6_addr;
+  __u32 ifr6_prefixlen;
+  unsigned int ifr6_ifindex;
+};
+
+char *receive_topic, *broadcast_topic;
+
+int debug;
+char *progname;
+int tap_fd, net2tap = 0;
+
+/**************************************************************************
+ * tun_alloc: allocates or reconnects to a tun/tap device. The caller     *
+ *            needs to reserve enough space in *dev.                      *
+ **************************************************************************/
+int tun_alloc(char *dev, int flags)
+{
+
+  struct ifreq ifr;
+  int fd, err;
+
+  if ((fd = open("/dev/net/tun", O_RDWR)) < 0)
+  {
+    perror("Opening /dev/net/tun");
+    return fd;
+  }
+
+  memset(&ifr, 0, sizeof(ifr));
+
+  ifr.ifr_flags = flags;
+
+  if (*dev)
+  {
+    strncpy(ifr.ifr_name, dev, IFNAMSIZ);
+  }
+
+  if ((err = ioctl(fd, TUNSETIFF, (void *)&ifr)) < 0)
+  {
+    perror("ioctl(TUNSETIFF)");
+    close(fd);
+    return err;
+  }
+
+  strcpy(dev, ifr.ifr_name);
+
+  return fd;
+}
+
+/**************************************************************************
+ * cread: read routine that checks for errors and exits if an error is    *
+ *        returned.                                                       *
+ **************************************************************************/
+int cread(int fd, char *buf, int n)
+{
+
+  int nread;
+
+  if ((nread = read(fd, buf, n)) < 0)
+  {
+    perror("Reading data");
+    exit(1);
+  }
+  return nread;
+}
+
+/**************************************************************************
+ * cwrite: write routine that checks for errors and exits if an error is  *
+ *         returned.                                                      *
+ **************************************************************************/
+int cwrite(int fd, char *buf, int n)
+{
+
+  int nwrite;
+
+  if ((nwrite = write(fd, buf, n)) < 0)
+  {
+    perror("Writing data");
+    exit(1);
+  }
+  return nwrite;
+}
+
+/**************************************************************************
+ * read_n: ensures we read exactly n bytes, and puts those into "buf".    *
+ *         (unless EOF, of course)                                        *
+ **************************************************************************/
+int read_n(int fd, char *buf, int n)
+{
+
+  int nread, left = n;
+
+  while (left > 0)
+  {
+    if ((nread = cread(fd, buf, left)) == 0)
+    {
+      return 0;
+    }
+    else
+    {
+      left -= nread;
+      buf += nread;
+    }
+  }
+  return n;
+}
+
+/**************************************************************************
+ * do_debug: prints debugging stuff (doh!)                                *
+ **************************************************************************/
+void do_debug(char *msg, ...)
+{
+
+  va_list argp;
+
+  if (debug)
+  {
+    va_start(argp, msg);
+    vfprintf(stderr, msg, argp);
+    va_end(argp);
+  }
+}
+
+/**************************************************************************
+ * my_err: prints custom error messages on stderr.                        *
+ **************************************************************************/
+void my_err(char *msg, ...)
+{
+
+  va_list argp;
+
+  va_start(argp, msg);
+  vfprintf(stderr, msg, argp);
+  va_end(argp);
+}
+
+/**************************************************************************
+ * usage: prints usage and exits.                                         *
+ **************************************************************************/
+void usage(void)
+{
+  fprintf(stderr, "Usage:\n");
+  fprintf(stderr, "%s -i <if_name> -a <ip> -b <broker> [-m <netmask>] [-n <clientid>] [-d]\n", progname);
+  fprintf(stderr, "%s -h\n", progname);
+  fprintf(stderr, "\n");
+  fprintf(stderr, "-i <if_name>: Name of interface to use (mandatory)\n");
+  fprintf(stderr, "-a <ip>: IP address of interface to use (mandatory)\n");
+  fprintf(stderr, "-b <broker>: Address of MQTT broker (like: tcp://broker.io:1883) (mandatory)\n");
+  fprintf(stderr, "-m <netmask>: Netmask of interface to use (default 255.255.255.0)\n");
+  fprintf(stderr, "-6 <ip6>: IPv6 address of interface to use\n");
+  fprintf(stderr, "-p <prefix>: prefix length of the IPv6 address (default 64)\n");
+  fprintf(stderr, "-n <clientid>: ID of MQTT client (%s<random>)\n", CLIENTID_PRE);
+  fprintf(stderr, "-d: outputs debug information while running\n");
+  fprintf(stderr, "-h: prints this help text\n");
+  exit(1);
+}
+
+/**************************************************************************
+ * MQTT callback functions.                                               *
+ **************************************************************************/
+
+void delivered(void *context, MQTTClient_deliveryToken dt)
+{
+  printf("Message with token value %d delivery confirmed\n", dt);
+}
+
+int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *message)
+{
+  int nwrite;
+
+  do_debug("Message arrived %d bytes on topic: %s\n", message->payloadlen, topicName);
+
+  if (strncmp(topicName, receive_topic, topicLen) == 0 ||
+      strncmp(topicName, broadcast_topic, topicLen) == 0)
+  {
+
+    net2tap++;
+
+    /* write it into the tun/tap interface */
+    if (message->payloadlen <= 1500)
+    {
+      nwrite = cwrite(tap_fd, message->payload, message->payloadlen);
+      do_debug("NET2TAP %lu: Written %d bytes to the tap interface\n", net2tap, nwrite);
+    }
+    else
+    {
+      do_debug("NET2TAP %lu: %d bytes too long to write the tap interface\n", net2tap, message->payloadlen);
+    }
+  }
+
+  MQTTClient_freeMessage(&message);
+  MQTTClient_free(topicName);
+
+  return 1;
+}
+
+void connlost(void *context, char *cause)
+{
+  printf("\nConnection lost\n");
+  printf("     cause: %s\n", cause);
+}
+
+int main(int argc, char *argv[])
+{
+
+  int option;
+  int flags = IFF_TUN;
+  char if_name[IFNAMSIZ] = "";
+  char *if_addr = NULL;
+  char if_mask[20] = "255.255.255.0";
+  char *if_addr6 = NULL;
+  int pre6 = 64;
+  char *broker = NULL;
+  char *cl_id = NULL;
+  int maxfd;
+  uint16_t nread;
+  //  uint16_t total_len, ethertype;
+  char buffer[BUFSIZE];
+  int ip_fd, ip6_fd;
+  unsigned long int tap2net = 0;
+  struct ifreq ifr;
+  struct sockaddr_in6 sai;
+  struct in6_ifreq ifr6;
+  int rc;
+
+  MQTTClient client;
+  MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
+  MQTTClient_message pubmsg = MQTTClient_message_initializer;
+  MQTTClient_deliveryToken token;
+
+  progname = argv[0];
+  srand(time(NULL));
+
+  /* Check command line options */
+  while ((option = getopt(argc, argv, "i:a:m:6:p:b:n:hd")) > 0)
+  {
+    switch (option)
+    {
+    case 'd':
+      debug = 1;
+      break;
+    case 'h':
+      usage();
+      break;
+    case 'i':
+      strncpy(if_name, optarg, IFNAMSIZ - 1);
+      break;
+    case 'a':
+      if_addr = optarg;
+      break;
+    case '6':
+      if_addr6 = optarg;
+      break;
+     case 'p':
+      pre6 = atoi(optarg);
+      break;
+    case 'b':
+      broker = optarg;
+      break;
+    case 'n':
+      cl_id = optarg;
+      break;
+    case 'm':
+      strncpy(if_mask, optarg, sizeof(if_mask));
+      if_addr[sizeof(if_mask) - 1] = '\0';
+      break;
+    default:
+      my_err("Unknown option %c\n", option);
+      usage();
+    }
+  }
+
+  argv += optind;
+  argc -= optind;
+
+  if (argc > 0)
+  {
+    my_err("Too many options!\n");
+    usage();
+  }
+
+  if (*if_name == '\0')
+  {
+    my_err("Must specify interface name!\n");
+    usage();
+  }
+
+  if (if_addr == NULL)
+  {
+    my_err("Must specify interface address!\n");
+    usage();
+  }
+
+  if (broker == NULL)
+  {
+    my_err("Must specify broker address!\n");
+    usage();
+  }
+
+  if (cl_id == NULL)
+  {
+    cl_id = malloc(sizeof(CLIENTID_PRE) + 20);
+    sprintf(cl_id, "%s%u", CLIENTID_PRE, rand());
+  }
+
+  /* initialize tun/tap interface */
+  if ((tap_fd = tun_alloc(if_name, flags | IFF_NO_PI)) < 0)
+  {
+    my_err("Error connecting to tun/tap interface %s!\n", if_name);
+    exit(1);
+  }
+
+  do_debug("Successfully connected to interface %s\n", if_name);
+
+  if ((ip_fd = socket(PF_INET, SOCK_DGRAM, IPPROTO_IP)) < 0)
+  {
+    my_err("Error connecting to tun/tap interface %s!\n", if_name);
+    exit(1);
+  }
+
+  strncpy(ifr.ifr_name, if_name, IFNAMSIZ);
+
+  ifr.ifr_addr.sa_family = AF_INET;
+  struct sockaddr_in *addr = (struct sockaddr_in *)&ifr.ifr_addr;
+  inet_pton(AF_INET, if_addr, &addr->sin_addr);
+  if (ioctl(ip_fd, SIOCSIFADDR, &ifr) < 0)
+  {
+    my_err("Error setting IP addr to tun/tap interface %s!\n", if_name);
+    exit(1);
+  }
+
+  inet_pton(AF_INET, if_mask, &addr->sin_addr);
+  if (ioctl(ip_fd, SIOCSIFNETMASK, &ifr) < 0)
+  {
+    my_err("Error setting netmask to tun/tap interface %s!\n", if_name);
+    exit(1);
+  }
+
+  if (if_addr6 != NULL)
+  {
+    ip6_fd = socket(AF_INET6, SOCK_DGRAM, IPPROTO_IP);
+
+    memset(&sai, 0, sizeof(struct sockaddr));
+    sai.sin6_family = AF_INET6;
+    sai.sin6_port = 0;
+
+    if (inet_pton(AF_INET6, if_addr6, (void *)&sai.sin6_addr) < 0)
+    {
+      my_err("Bad address %s\n", if_addr6);
+      return (1);
+    }
+    memcpy((char *)&ifr6.ifr6_addr, (char *)&sai.sin6_addr, sizeof(struct in6_addr));
+
+    if (ioctl(ip6_fd, SIOGIFINDEX, &ifr) < 0)
+    {
+      perror("SIOGIFINDEX");
+    }
+    ifr6.ifr6_ifindex = ifr.ifr_ifindex;
+    ifr6.ifr6_prefixlen = pre6;
+    if (ioctl(ip6_fd, SIOCSIFADDR, &ifr6) < 0)
+    {
+      perror("SIOCSIFADDR");
+    }
+  }
+
+  if (ioctl(ip_fd, SIOCGIFFLAGS, &ifr) < 0)
+  {
+    my_err("Error reading tun/tap interface %s flags!\n", if_name);
+    exit(1);
+  }
+
+  ifr.ifr_flags |= (IFF_UP | IFF_RUNNING);
+  if (ioctl(ip_fd, SIOCSIFFLAGS, &ifr) < 0)
+  {
+    my_err("Error setting tun/tap interface %s up!\n", if_name);
+    exit(1);
+  }
+
+  do_debug("Successfully initialized interface %s\n", if_name);
+
+  MQTTClient_create(&client, broker, cl_id,
+                    MQTTCLIENT_PERSISTENCE_NONE, NULL);
+  conn_opts.keepAliveInterval = 20;
+  conn_opts.cleansession = 1;
+
+  MQTTClient_setCallbacks(client, NULL, connlost, msgarrvd, delivered);
+
+  if ((rc = MQTTClient_connect(client, &conn_opts)) != MQTTCLIENT_SUCCESS)
+  {
+    printf("Failed to connect, return code %d\n", rc);
+    exit(-1);
+  }
+  do_debug("Successfully connected client %s to the MQTT broker %s\n", cl_id, broker);
+
+  receive_topic = malloc(sizeof(TOPIC_PRE) + strlen(if_addr) + 2);
+  sprintf(receive_topic, "%s/%s", TOPIC_PRE, if_addr);
+  do_debug("Subscribing to topic %s\n", receive_topic);
+  MQTTClient_subscribe(client, receive_topic, QOS);
+
+  broadcast_topic = malloc(sizeof(TOPIC_PRE) + sizeof("/255.255.255.255") + 1);
+  sprintf(broadcast_topic, "%s/255.255.255.255", TOPIC_PRE);
+  do_debug("Subscribing to topic %s\n", broadcast_topic);
+  MQTTClient_subscribe(client, broadcast_topic, QOS);
+
+  fprintf(stderr, "MQTT VPN client %s on broker %s for ip address %s started\n", cl_id, broker, if_addr);
+
+  /* use select() to handle more than one descriptor at once */
+  maxfd = tap_fd;
+
+  while (1)
+  {
+    int ret;
+    fd_set rd_set;
+
+    FD_ZERO(&rd_set);
+    FD_SET(tap_fd, &rd_set);
+
+    ret = select(maxfd + 1, &rd_set, NULL, NULL, NULL);
+
+    if (ret < 0 && errno == EINTR)
+    {
+      continue;
+    }
+
+    if (ret < 0)
+    {
+      perror("select()");
+      exit(1);
+    }
+
+    if (FD_ISSET(tap_fd, &rd_set))
+    {
+      /* data from tun/tap: just read it and write it to the MQTT topic */
+      char send_topic[sizeof(TOPIC_PRE) + 20];
+
+      nread = cread(tap_fd, buffer, BUFSIZE);
+      if ((buffer[0] & 0xf0) != 0x40 || nread < IP_HDR_LEN)
+      {
+        do_debug("Invalid IPv4 packet from tun if\n");
+        continue;
+      }
+
+      tap2net++;
+      do_debug("TAP2NET %lu: Read %d bytes from the tap interface\n", tap2net, nread);
+
+      sprintf(send_topic, "%s/%u.%u.%u.%u", TOPIC_PRE, buffer[16], buffer[17], buffer[18], buffer[19]);
+      pubmsg.payload = buffer;
+      pubmsg.payloadlen = nread;
+      pubmsg.qos = QOS;
+      pubmsg.retained = 0;
+
+      MQTTClient_publishMessage(client, send_topic, &pubmsg, &token);
+
+      do_debug("TAP2NET %lu: Written %d bytes to topic %s\n", tap2net, nread, send_topic);
+    }
+  }
+
+  return (0);
+}
