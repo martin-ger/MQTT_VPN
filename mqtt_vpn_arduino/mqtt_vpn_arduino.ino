@@ -1,9 +1,5 @@
 /*
-    This sketch sends data via HTTP GET requests to data.sparkfun.com service.
-
-    You need to get streamId and privateKey at data.sparkfun.com and paste them
-    below. Or just customize this script to talk to other HTTP servers.
-
+    This sketch is a demo for the MQTT_VPN
 */
 
 #include <ESP8266WiFi.h>
@@ -32,9 +28,6 @@ void setup() {
   Serial.print("Connecting to ");
   Serial.println(ssid);
 
-  /* Explicitly set the ESP8266 to be a WiFi-client, otherwise, it by default,
-     would try to act as both a client and an access-point and could cause
-     network-issues with your other WiFi-devices on your WiFi-network. */
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
 
@@ -48,6 +41,8 @@ void setup() {
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
 
+  /* The magic is here:
+     This sets up a new IP interface that is connected to the central MQTT broker */
   my_if = mqtt_if_init(broker, mqtt_vpn_addr);
 
   server.begin();
