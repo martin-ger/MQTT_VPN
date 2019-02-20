@@ -13,9 +13,9 @@ With encryption in place, an adversary controlling the MQTT broker or the networ
 ## Arduino ESP8266
 In the mqtt_vpn_arduino directory you will find a sample sketch and all required lib files. The sample "mqtt_vpn_arduino.ino" is derived from the standard WiFiTelnetToSerial sample. The only difference is, that it calls:
 ```
-  my_if = mqtt_if_init(broker, mqtt_vpn_addr);
+  my_if = mqtt_if_init(broker, mqtt_vpn_addr, vpn_password);
 ```
-is its setup() function. This sets up the new "mqttif" interface with the IP over MQTT tunneling. Now you can ping or telnet into the ESP8266 via the VPN from another ESP8266 using the same SW or from a linux box using the small programm below. The demo sketch uses the hardcoded address 10.0.1.2/24.
+is its setup() function. This sets up the new "mqttif" interface with the IP over MQTT tunneling. Now you can ping or telnet into the ESP8266 via the VPN from another ESP8266 using the same SW or from a linux box using the small programm below. If you give an empty password with "" encryption will be disabled. The demo sketch uses the hardcoded password "secret" and address 10.0.1.2/24. 
 
 BTW: Another ESP8266 version can be found in the mqtt_tun branch of the esp_wifi_repeater (https://github.com/martin-ger/esp_wifi_repeater/tree/mqtt_tun )
 
@@ -24,7 +24,7 @@ BTW: Another ESP8266 version can be found in the mqtt_tun branch of the esp_wifi
 This Linux version can communicate with the Arduino version above. Run this prog in background and use all standard network tools (including wireshark).
 If you start for example:
 ```
-sudo ./mqtt_vpn -i mq0 -a 10.0.1.1 -b tcp://my_broker.org:1883 -d
+sudo ./mqtt_vpn -i mq0 -a 10.0.1.1 -b tcp://my_broker.org:1883 -k secret -d
 ```
 You will see with "ifconfig" a new network interface "mq0" with address 10.0.1.1. It is connected via the broker to all other devices using the VPN over MQTT. Now you can reach an ESP8266 running the program above with
 ```
@@ -39,7 +39,7 @@ mqtt_vpn -i <if_name> -a <ip> -b <broker> [-m <netmask>] [-n <clientid>] [-d]
 -a <ip>: IP address of interface to use (mandatory)
 -b <broker>: Address of MQTT broker (like: tcp://broker.io:1883) (mandatory)
 -m <netmask>: Netmask of interface to use (default 255.255.255.0)
--k <password>: preshared key for all clients of this VPN
+-k <password>: preshared key for all clients of this VPN (no password = no encryption, default)
 -6 <ip6>: IPv6 address of interface to use
 -p <prefix>: prefix length of the IPv6 address (default 64)
 -n <clientid>: ID of MQTT client (MQTT_VPN_<random>)

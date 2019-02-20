@@ -5,10 +5,13 @@
 #include <ESP8266WiFi.h>
 #include "mqttif.h"
 
+// WiFi settings
 const char* ssid     = "...";
 const char* password = "...";
 
+// VPN settings
 char* broker = "...";
+char* vpn_password = "secret";
 IPAddress mqtt_vpn_addr(10,0,1,2);
 
 struct mqtt_if_data *my_if;
@@ -43,7 +46,7 @@ void setup() {
 
   /* The magic is here:
      This sets up a new IP interface that is connected to the central MQTT broker */
-  my_if = mqtt_if_init(broker, mqtt_vpn_addr);
+  my_if = mqtt_if_init(broker, mqtt_vpn_addr, vpn_password);
 
   server.begin();
   server.setNoDelay(true);

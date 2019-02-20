@@ -254,7 +254,7 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
     {
         if (crypto_secretbox_open(m, packet_start + crypto_secretbox_NONCEBYTES, packet_len - crypto_secretbox_NONCEBYTES, packet_start, key) == -1)
         {
-	    do_debug("NET2TAP %lu: Decrypt Error\r\n");
+	    do_debug("NET2TAP %lu: Decrypt Error\r\n", net2tap);
 	    return 1;
         }
 	packet_start = m + crypto_secretbox_ZEROBYTES;

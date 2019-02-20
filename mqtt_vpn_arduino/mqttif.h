@@ -3,8 +3,8 @@
 
 struct mqtt_if_data;
 
-struct mqtt_if_data *mqtt_if_init(char * broker, IPAddress ipaddr);
-struct mqtt_if_data *mqtt_if_init(char * broker, int port, char *topic_pre, IPAddress ipaddr, IPAddress netmask, IPAddress gw);
+struct mqtt_if_data *mqtt_if_init(char * broker, IPAddress ipaddr, char* password);
+struct mqtt_if_data *mqtt_if_init(char * broker, int port, char *topic_pre, char* password, IPAddress ipaddr, IPAddress netmask, IPAddress gw);
 
 void mqtt_if_del(struct mqtt_if_data *data);
 

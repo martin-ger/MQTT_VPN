@@ -1,6 +1,9 @@
 #include "mqttif.h"
-
 #include "MQTT.h"
+
+extern "C" {
+#include "tweetnacl.h"
+}
 
 #include <lwip/ip.h>
 #include <lwip/init.h>
@@ -13,7 +16,10 @@ struct mqtt_if_data {
   char *topic_pre;
   char *receive_topic;
   char *broadcast_topic;
+  uint8_t key_set;
+  u_char key[crypto_secretbox_KEYBYTES];
   u_char buf[2048];
+  u_char cypherbuf_buf[2048];
 };
 
 MQTT_Client mqttClient;
@@ -38,7 +44,9 @@ static void mqttDataCb(uint32_t *args, const char* topic, uint32_t topic_len, co
   mqtt_if_input(mqtt_if, topic, topic_len, data, data_len);
 }
 
-struct mqtt_if_data *mqtt_if_init(char * broker, int port, char *topic_pre, IPAddress ipaddr, IPAddress netmask, IPAddress gw) {
+struct mqtt_if_data *mqtt_if_init(char * broker, int port, char *topic_pre, char* password, IPAddress ipaddr, IPAddress netmask, IPAddress gw) {
+  unsigned char h[crypto_hash_BYTES];
+  
   Serial.print("Init on broker: "); Serial.println(broker);
 
   MQTT_InitConnection(&mqttClient, (uint8_t *)broker, port, 0);
@@ -55,14 +63,21 @@ struct mqtt_if_data *mqtt_if_init(char * broker, int port, char *topic_pre, IPAd
   mqtt_if_set_netmask(mqtt_if, netmask);
   mqtt_if_set_gw(mqtt_if, gw);
   mqtt_if_set_up(mqtt_if);
-
+  if (strlen(password) > 0) 
+  {
+    crypto_hash(h, (const unsigned char*)password, os_strlen(password));
+    os_memcpy(mqtt_if->key, h, crypto_secretbox_KEYBYTES);
+    mqtt_if->key_set = 1;
+  } else {
+    mqtt_if->key_set = 0;
+  }
   MQTT_Connect(&mqttClient);
   
   return mqtt_if;
 }
 
-struct mqtt_if_data *mqtt_if_init(char * broker, IPAddress ipaddr) {
-  return mqtt_if_init(broker, 1883, "mqttip", ipaddr, IPAddress (255,255,255,0), IPAddress (0,0,0,0));
+struct mqtt_if_data *mqtt_if_init(char * broker, IPAddress ipaddr, char* password) {
+  return mqtt_if_init(broker, 1883, "mqttip", password, ipaddr, IPAddress (255,255,255,0), IPAddress (0,0,0,0));
 }
 
 static err_t ICACHE_FLASH_ATTR
@@ -73,16 +88,25 @@ struct ip_hdr *iph;
 int len;
 char buf[os_strlen((const char *)data->topic_pre) + 20];
 
-	len = pbuf_copy_partial(p, data->buf, sizeof(data->buf), 0);
-	iph = (struct ip_hdr *)data->buf;
+  os_sprintf(buf, "%s/" IPSTR , data->topic_pre, IP2STR(ipaddr));
+  if (data->key_set) 
+  {
+    randombytes(data->cypherbuf_buf, crypto_secretbox_NONCEBYTES);
+    bzero(data->buf, crypto_secretbox_ZEROBYTES);
+    len = pbuf_copy_partial(p, data->buf + crypto_secretbox_ZEROBYTES, sizeof(data->buf) - crypto_secretbox_ZEROBYTES, 0);
+    crypto_secretbox(data->cypherbuf_buf + crypto_secretbox_NONCEBYTES, data->buf, len+crypto_secretbox_ZEROBYTES, data->cypherbuf_buf, data->key);
 
-	//os_printf("packet %d, buf %x\r\n", len, p);
-	//os_printf("to: " IPSTR " from: " IPSTR " via " IPSTR "\r\n", IP2STR(&iph->dest), IP2STR(&iph->src), IP2STR(ipaddr));
-	os_sprintf(buf, "%s/" IPSTR , data->topic_pre, IP2STR(ipaddr));
+    MQTT_Publish(data->mqttcl, buf, (const char*)data->cypherbuf_buf, len + crypto_secretbox_NONCEBYTES + crypto_secretbox_ZEROBYTES, 0, 1);
+  } else {
+    len = pbuf_copy_partial(p, data->buf, sizeof(data->buf), 0);
 
-	MQTT_Publish(data->mqttcl, (const char*)buf, (const char*)data->buf, len, 0, 1);
+    //iph = (struct ip_hdr *)data->buf;
+    //os_printf("packet %d, buf %x\r\n", len, p);
+    //os_printf("to: " IPSTR " from: " IPSTR " via " IPSTR "\r\n", IP2STR(&iph->dest), IP2STR(&iph->src), IP2STR(ipaddr));
 
-	return 0;
+    MQTT_Publish(data->mqttcl, (const char*)buf, (const char*)data->buf, len, 0, 1);
+  }
+  return 0;
 }
 
 void ICACHE_FLASH_ATTR mqtt_if_input(struct mqtt_if_data *data, const char* topic, uint32_t topic_len, const char *mqtt_data, uint32_t mqtt_data_len)
@@ -90,21 +114,38 @@ void ICACHE_FLASH_ATTR mqtt_if_input(struct mqtt_if_data *data, const char* topi
   uint8_t buf[topic_len+1];
   os_strncpy((char *) buf, topic, topic_len);
   buf[topic_len] = '\0';
+  struct pbuf *pb;
   //os_printf("Received %s - %d bytes\r\n", buf, mqtt_data_len);
 
   if ((topic_len == os_strlen((const char*)data->receive_topic) && os_strncmp((const char*)topic, (const char*)data->receive_topic, topic_len) == 0) || 
       (topic_len == os_strlen((const char*)data->broadcast_topic) && os_strncmp((const char*)topic, (const char*)data->broadcast_topic, topic_len) == 0)) {
 
-	struct pbuf *pb = pbuf_alloc(PBUF_LINK, mqtt_data_len, PBUF_RAM);
-
-	//os_printf("pb: %x len: %d tot_len: %d\r\n", pb, pb->len, pb->tot_len);
-
- 	if (pb != NULL) {
-		pbuf_take(pb, mqtt_data, mqtt_data_len);
-		if (data->netif.input(pb, &data->netif) != ERR_OK) {
-			pbuf_free(pb);
-		}
-	}
+    if (data->key_set) 
+    {
+      unsigned char m[mqtt_data_len];
+      uint32_t message_len = mqtt_data_len - crypto_secretbox_NONCEBYTES;
+  
+      if (crypto_secretbox_open(m, (const unsigned char*)(mqtt_data + crypto_secretbox_NONCEBYTES), message_len, (const unsigned char*)mqtt_data, data->key) == -1)
+      {
+        os_printf("mqttif decrypt error\r\n");
+        return;
+      }
+  
+      pb = pbuf_alloc(PBUF_LINK, message_len-crypto_secretbox_ZEROBYTES, PBUF_RAM);
+      //os_printf("pb: %x len: %d tot_len: %d\r\n", pb, pb->len, pb->tot_len);
+      if (pb == NULL)
+        return;
+      pbuf_take(pb, m+crypto_secretbox_ZEROBYTES, message_len-crypto_secretbox_ZEROBYTES);
+    } else {
+      pb = pbuf_alloc(PBUF_LINK, mqtt_data_len, PBUF_RAM);
+      if (pb == NULL)
+        return; 
+      pbuf_take(pb, mqtt_data, mqtt_data_len);
+  
+    }
+    if (data->netif.input(pb, &data->netif) != ERR_OK) {
+      pbuf_free(pb);
+    }
   }
 }
 
