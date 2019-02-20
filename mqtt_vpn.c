@@ -40,6 +40,8 @@
 #include <time.h>
 
 #include "MQTTClient.h"
+#include "nacl/crypto_hash.h"
+#include "nacl/crypto_secretbox.h"
 
 /* MQTT related defs */
 #define CLIENTID_PRE "MQTT_VPN_"
@@ -69,6 +71,8 @@ struct in6_ifreq
 };
 
 char *receive_topic, *broadcast_topic;
+u_char key[crypto_secretbox_KEYBYTES];
+unsigned char key_set = 0;
 
 int debug;
 char *progname;
@@ -210,6 +214,7 @@ void usage(void)
   fprintf(stderr, "-i <if_name>: Name of interface to use (mandatory)\n");
   fprintf(stderr, "-a <ip>: IP address of interface to use (mandatory)\n");
   fprintf(stderr, "-b <broker>: Address of MQTT broker (like: tcp://broker.io:1883) (mandatory)\n");
+  fprintf(stderr, "-k <password>: preshared key for all clients of this VPN\n");
   fprintf(stderr, "-m <netmask>: Netmask of interface to use (default 255.255.255.0)\n");
   fprintf(stderr, "-6 <ip6>: IPv6 address of interface to use\n");
   fprintf(stderr, "-p <prefix>: prefix length of the IPv6 address (default 64)\n");
@@ -225,25 +230,41 @@ void usage(void)
 
 void delivered(void *context, MQTTClient_deliveryToken dt)
 {
-  printf("Message with token value %d delivery confirmed\n", dt);
+  fprintf(stderr, "Message with token value %d delivery confirmed\n", dt);
 }
 
 int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *message)
 {
   int nwrite;
+  unsigned int packet_len;
+  unsigned char *packet_start;
 
   do_debug("Message arrived %d bytes on topic: %s\n", message->payloadlen, topicName);
 
   if (strncmp(topicName, receive_topic, topicLen) == 0 ||
       strncmp(topicName, broadcast_topic, topicLen) == 0)
   {
-
     net2tap++;
 
-    /* write it into the tun/tap interface */
-    if (message->payloadlen <= 1500)
+    packet_start = message->payload;
+    packet_len = message->payloadlen;
+    unsigned char m[packet_len];
+
+    if (key_set)
     {
-      nwrite = cwrite(tap_fd, message->payload, message->payloadlen);
+        if (crypto_secretbox_open(m, packet_start + crypto_secretbox_NONCEBYTES, packet_len - crypto_secretbox_NONCEBYTES, packet_start, key) == -1)
+        {
+	    do_debug("NET2TAP %lu: Decrypt Error\r\n");
+	    return 1;
+        }
+	packet_start = m + crypto_secretbox_ZEROBYTES;
+        packet_len = packet_len - crypto_secretbox_NONCEBYTES - crypto_secretbox_ZEROBYTES;
+    }
+
+    /* write it into the tun/tap interface */
+    if (packet_len <= 1500)
+    {
+      nwrite = cwrite(tap_fd, (char*)packet_start, packet_len);
       do_debug("NET2TAP %lu: Written %d bytes to the tap interface\n", net2tap, nwrite);
     }
     else
@@ -260,8 +281,8 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
 
 void connlost(void *context, char *cause)
 {
-  printf("\nConnection lost\n");
-  printf("     cause: %s\n", cause);
+  fprintf(stderr, "\nConnection lost\n");
+  fprintf(stderr, "     cause: %s\n", cause);
 }
 
 int main(int argc, char *argv[])
@@ -278,14 +299,16 @@ int main(int argc, char *argv[])
   char *cl_id = NULL;
   int maxfd;
   uint16_t nread;
-  //  uint16_t total_len, ethertype;
   char buffer[BUFSIZE];
+  unsigned char plain_buf[BUFSIZE + crypto_secretbox_ZEROBYTES];
+  unsigned char cypher_buf[BUFSIZE + crypto_secretbox_NONCEBYTES + crypto_secretbox_ZEROBYTES];
   int ip_fd, ip6_fd;
   unsigned long int tap2net = 0;
   struct ifreq ifr;
   struct sockaddr_in6 sai;
   struct in6_ifreq ifr6;
   int rc;
+  unsigned char h[crypto_hash_BYTES];
 
   MQTTClient client;
   MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
@@ -294,9 +317,10 @@ int main(int argc, char *argv[])
 
   progname = argv[0];
   srand(time(NULL));
+  
 
   /* Check command line options */
-  while ((option = getopt(argc, argv, "i:a:m:6:p:b:n:hd")) > 0)
+  while ((option = getopt(argc, argv, "i:a:m:k:6:p:b:n:hd")) > 0)
   {
     switch (option)
     {
@@ -311,6 +335,11 @@ int main(int argc, char *argv[])
       break;
     case 'a':
       if_addr = optarg;
+      break;
+    case 'k':
+      crypto_hash(h, (unsigned char*)optarg, strlen(optarg));
+      memcpy(key, h, crypto_secretbox_KEYBYTES);
+      key_set = 1;
       break;
     case '6':
       if_addr6 = optarg;
@@ -451,7 +480,7 @@ int main(int argc, char *argv[])
 
   if ((rc = MQTTClient_connect(client, &conn_opts)) != MQTTCLIENT_SUCCESS)
   {
-    printf("Failed to connect, return code %d\n", rc);
+    fprintf(stderr, "Failed to connect, return code %d\n", rc);
     exit(-1);
   }
   do_debug("Successfully connected client %s to the MQTT broker %s\n", cl_id, broker);
@@ -508,14 +537,29 @@ int main(int argc, char *argv[])
       do_debug("TAP2NET %lu: Read %d bytes from the tap interface\n", tap2net, nread);
 
       sprintf(send_topic, "%s/%u.%u.%u.%u", TOPIC_PRE, buffer[16], buffer[17], buffer[18], buffer[19]);
-      pubmsg.payload = buffer;
-      pubmsg.payloadlen = nread;
       pubmsg.qos = QOS;
       pubmsg.retained = 0;
 
+      if (key_set)
+      {
+    do_debug("TAP2NET %lu: crypto_secretbox_NONCEBYTES: %d crypto_secretbox_ZEROBYTES: %d\n", tap2net, crypto_secretbox_NONCEBYTES, crypto_secretbox_ZEROBYTES);
+	for (int i = 0; i < crypto_secretbox_NONCEBYTES; i++) {
+          cypher_buf[i] = rand();
+	}
+	bzero(plain_buf, crypto_secretbox_ZEROBYTES);
+	memcpy(plain_buf + crypto_secretbox_ZEROBYTES, buffer, nread);
+        crypto_secretbox(cypher_buf + crypto_secretbox_NONCEBYTES, plain_buf, nread+crypto_secretbox_ZEROBYTES, cypher_buf, key);
+        pubmsg.payload = cypher_buf;
+        pubmsg.payloadlen = nread+ crypto_secretbox_NONCEBYTES + crypto_secretbox_ZEROBYTES;
+     
+      } else {
+        pubmsg.payload = buffer;
+        pubmsg.payloadlen = nread;
+      }
+
       MQTTClient_publishMessage(client, send_topic, &pubmsg, &token);
 
-      do_debug("TAP2NET %lu: Written %d bytes to topic %s\n", tap2net, nread, send_topic);
+      do_debug("TAP2NET %lu: Written %d bytes to topic %s\n", tap2net, pubmsg.payloadlen, send_topic);
     }
   }
 
