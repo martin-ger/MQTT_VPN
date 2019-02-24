@@ -44,14 +44,16 @@ static void mqttDataCb(uint32_t *args, const char* topic, uint32_t topic_len, co
   mqtt_if_input(mqtt_if, topic, topic_len, data, data_len);
 }
 
-struct mqtt_if_data *mqtt_if_init(char * broker, int port, char *topic_pre, char* password, IPAddress ipaddr, IPAddress netmask, IPAddress gw) {
+struct mqtt_if_data *mqtt_if_init(char* broker, char* user, char* broker_password, int port, char *topic_pre, char* password, IPAddress ipaddr, IPAddress netmask, IPAddress gw) {
   unsigned char h[crypto_hash_BYTES];
+  uint8_t mqtt_client_name[50];
   
   Serial.print("Init on broker: "); Serial.println(broker);
 
   MQTT_InitConnection(&mqttClient, (uint8_t *)broker, port, 0);
 //MQTT_InitClient(&mqttClient, MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS, MQTT_KEEPALIVE, MQTT_CLEAN_SESSION);
-  MQTT_InitClient(&mqttClient, (uint8_t *)"MQTT_VPN_X", 0, 0, 120, 1);
+  os_sprintf((char*)mqtt_client_name, "MQTT_VPN_%d", rand());
+  MQTT_InitClient(&mqttClient, mqtt_client_name, (uint8_t *)user, (uint8_t *)broker_password, 120, 1);
 
   MQTT_OnConnected(&mqttClient, mqttConnectedCb);
   MQTT_OnDisconnected(&mqttClient, mqttDisconnectedCb);
@@ -76,8 +78,12 @@ struct mqtt_if_data *mqtt_if_init(char * broker, int port, char *topic_pre, char
   return mqtt_if;
 }
 
+struct mqtt_if_data *mqtt_if_init(char * broker, char* user, char* broker_password, IPAddress ipaddr, char* password) {
+  return mqtt_if_init(broker, user, broker_password, 1883, "mqttip", password, ipaddr, IPAddress (255,255,255,0), IPAddress (0,0,0,0));
+}
+
 struct mqtt_if_data *mqtt_if_init(char * broker, IPAddress ipaddr, char* password) {
-  return mqtt_if_init(broker, 1883, "mqttip", password, ipaddr, IPAddress (255,255,255,0), IPAddress (0,0,0,0));
+  return mqtt_if_init(broker, NULL, NULL, 1883, "mqttip", password, ipaddr, IPAddress (255,255,255,0), IPAddress (0,0,0,0));
 }
 
 static err_t ICACHE_FLASH_ATTR

@@ -39,9 +39,11 @@ mqtt_vpn -i <if_name> -a <ip> -b <broker> [-m <netmask>] [-n <clientid>] [-d]
 -a <ip>: IP address of interface to use (mandatory)
 -b <broker>: Address of MQTT broker (like: tcp://broker.io:1883) (mandatory)
 -m <netmask>: Netmask of interface to use (default 255.255.255.0)
+-u <username>: user of the MQTT broker
+-p <password>: password of the MQTT broker user
 -k <password>: preshared key for all clients of this VPN (no password = no encryption, default)
 -6 <ip6>: IPv6 address of interface to use
--p <prefix>: prefix length of the IPv6 address (default 64)
+-x <prefix>: prefix length of the IPv6 address (default 64)
 -n <clientid>: ID of MQTT client (MQTT_VPN_<random>)
 -d: outputs debug information while running
 -h: prints this help text

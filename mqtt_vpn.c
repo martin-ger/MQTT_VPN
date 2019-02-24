@@ -214,10 +214,12 @@ void usage(void)
   fprintf(stderr, "-i <if_name>: Name of interface to use (mandatory)\n");
   fprintf(stderr, "-a <ip>: IP address of interface to use (mandatory)\n");
   fprintf(stderr, "-b <broker>: Address of MQTT broker (like: tcp://broker.io:1883) (mandatory)\n");
+  fprintf(stderr, "-u <username>: user of the MQTT broker\n");
+  fprintf(stderr, "-p <password>: password of the MQTT broker user\n");
   fprintf(stderr, "-k <password>: preshared key for all clients of this VPN\n");
   fprintf(stderr, "-m <netmask>: Netmask of interface to use (default 255.255.255.0)\n");
   fprintf(stderr, "-6 <ip6>: IPv6 address of interface to use\n");
-  fprintf(stderr, "-p <prefix>: prefix length of the IPv6 address (default 64)\n");
+  fprintf(stderr, "-x <prefix>: prefix length of the IPv6 address (default 64)\n");
   fprintf(stderr, "-n <clientid>: ID of MQTT client (%s<random>)\n", CLIENTID_PRE);
   fprintf(stderr, "-d: outputs debug information while running\n");
   fprintf(stderr, "-h: prints this help text\n");
@@ -320,7 +322,7 @@ int main(int argc, char *argv[])
   
 
   /* Check command line options */
-  while ((option = getopt(argc, argv, "i:a:m:k:6:p:b:n:hd")) > 0)
+  while ((option = getopt(argc, argv, "i:a:m:k:6:x:b:u:p:n:hd")) > 0)
   {
     switch (option)
     {
@@ -344,11 +346,17 @@ int main(int argc, char *argv[])
     case '6':
       if_addr6 = optarg;
       break;
-     case 'p':
+     case 'x':
       pre6 = atoi(optarg);
       break;
     case 'b':
       broker = optarg;
+      break;
+    case 'u':
+      conn_opts.username = optarg;
+      break;
+    case 'p':
+      conn_opts.password = optarg;
       break;
     case 'n':
       cl_id = optarg;

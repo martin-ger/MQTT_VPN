@@ -9,7 +9,8 @@
 *
 * * Redistributions of source code must retain the above copyright notice,
 * this list of conditions and the following disclaimer.
-* * Redistributions in binary form must reproduce the above copyright
+* 
+* Redistributions in binary form must reproduce the above copyright
 * notice, this list of conditions and the following disclaimer in the
 * documentation and/or other materials provided with the distribution.
 * * Neither the name of Redis nor the names of its contributors may be used
@@ -29,6 +30,8 @@
 * POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include "mqtt/mqtt.h"
+
 #include "user_interface.h"
 #include "osapi.h"
 #include "espconn.h"
@@ -38,7 +41,7 @@
 #include "mqtt/debug.h"
 #include "user_config.h"
 #include "mqtt/defaults.h"
-#include "mqtt/mqtt.h"
+
 #include "mqtt/queue.h"
 
 #define MQTT_TASK_PRIO            2
