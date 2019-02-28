@@ -128,12 +128,18 @@ void ICACHE_FLASH_ATTR mqtt_if_input(struct mqtt_if_data *data, const char* topi
 
     if (data->key_set) 
     {
-      unsigned char m[mqtt_data_len];
+      if (mqtt_data_len < crypto_secretbox_NONCEBYTES + crypto_secretbox_ZEROBYTES)
+      {
+        //Serial.println("mqttif decrypt error (too short)");
+        return;
+      }
+      
+      unsigned char m[mqtt_data_len];      
       uint32_t message_len = mqtt_data_len - crypto_secretbox_NONCEBYTES;
-  
+
       if (crypto_secretbox_open(m, (const unsigned char*)(mqtt_data + crypto_secretbox_NONCEBYTES), message_len, (const unsigned char*)mqtt_data, data->key) == -1)
       {
-        os_printf("mqttif decrypt error\r\n");
+        //Serial.println("mqttif decrypt error");
         return;
       }
   

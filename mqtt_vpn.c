@@ -240,6 +240,7 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
   int nwrite;
   unsigned int packet_len;
   unsigned char *packet_start;
+  int packet_ok = 1;
 
   do_debug("Message arrived %d bytes on topic: %s\n", message->payloadlen, topicName);
 
@@ -254,24 +255,29 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
 
     if (key_set)
     {
-        if (crypto_secretbox_open(m, packet_start + crypto_secretbox_NONCEBYTES, packet_len - crypto_secretbox_NONCEBYTES, packet_start, key) == -1)
-        {
-	    do_debug("NET2TAP %lu: Decrypt Error\r\n", net2tap);
-	    return 1;
-        }
-	packet_start = m + crypto_secretbox_ZEROBYTES;
+      if ((packet_len <= crypto_secretbox_NONCEBYTES + crypto_secretbox_ZEROBYTES) ||
+         (crypto_secretbox_open(m, packet_start + crypto_secretbox_NONCEBYTES, packet_len - crypto_secretbox_NONCEBYTES, packet_start, key) == -1))
+      {
+        do_debug("NET2TAP %lu: Decrypt Error\r\n", net2tap);
+        packet_ok = 0;
+      } else {
+        packet_start = m + crypto_secretbox_ZEROBYTES;
         packet_len = packet_len - crypto_secretbox_NONCEBYTES - crypto_secretbox_ZEROBYTES;
+      }
     }
 
-    /* write it into the tun/tap interface */
-    if (packet_len <= 1500)
+    if (packet_ok)
     {
-      nwrite = cwrite(tap_fd, (char*)packet_start, packet_len);
-      do_debug("NET2TAP %lu: Written %d bytes to the tap interface\n", net2tap, nwrite);
-    }
-    else
-    {
-      do_debug("NET2TAP %lu: %d bytes too long to write the tap interface\n", net2tap, message->payloadlen);
+      /* write it into the tun/tap interface */
+      if (packet_len <= 1500)
+      {
+        nwrite = cwrite(tap_fd, (char *)packet_start, packet_len);
+        do_debug("NET2TAP %lu: Written %d bytes to the tap interface\n", net2tap, nwrite);
+      }
+      else
+      {
+        do_debug("NET2TAP %lu: %d bytes too long to write the tap interface\n", net2tap, message->payloadlen);
+      }
     }
   }
 
@@ -319,7 +325,6 @@ int main(int argc, char *argv[])
 
   progname = argv[0];
   srand(time(NULL));
-  
 
   /* Check command line options */
   while ((option = getopt(argc, argv, "i:a:m:k:6:x:b:u:p:n:hd")) > 0)
@@ -339,14 +344,14 @@ int main(int argc, char *argv[])
       if_addr = optarg;
       break;
     case 'k':
-      crypto_hash(h, (unsigned char*)optarg, strlen(optarg));
+      crypto_hash(h, (unsigned char *)optarg, strlen(optarg));
       memcpy(key, h, crypto_secretbox_KEYBYTES);
       key_set = 1;
       break;
     case '6':
       if_addr6 = optarg;
       break;
-     case 'x':
+    case 'x':
       pre6 = atoi(optarg);
       break;
     case 'b':
@@ -550,17 +555,19 @@ int main(int argc, char *argv[])
 
       if (key_set)
       {
-    do_debug("TAP2NET %lu: crypto_secretbox_NONCEBYTES: %d crypto_secretbox_ZEROBYTES: %d\n", tap2net, crypto_secretbox_NONCEBYTES, crypto_secretbox_ZEROBYTES);
-	for (int i = 0; i < crypto_secretbox_NONCEBYTES; i++) {
+        do_debug("TAP2NET %lu: crypto_secretbox_NONCEBYTES: %d crypto_secretbox_ZEROBYTES: %d\n", tap2net, crypto_secretbox_NONCEBYTES, crypto_secretbox_ZEROBYTES);
+        for (int i = 0; i < crypto_secretbox_NONCEBYTES; i++)
+        {
           cypher_buf[i] = rand();
-	}
-	bzero(plain_buf, crypto_secretbox_ZEROBYTES);
-	memcpy(plain_buf + crypto_secretbox_ZEROBYTES, buffer, nread);
-        crypto_secretbox(cypher_buf + crypto_secretbox_NONCEBYTES, plain_buf, nread+crypto_secretbox_ZEROBYTES, cypher_buf, key);
+        }
+        bzero(plain_buf, crypto_secretbox_ZEROBYTES);
+        memcpy(plain_buf + crypto_secretbox_ZEROBYTES, buffer, nread);
+        crypto_secretbox(cypher_buf + crypto_secretbox_NONCEBYTES, plain_buf, nread + crypto_secretbox_ZEROBYTES, cypher_buf, key);
         pubmsg.payload = cypher_buf;
-        pubmsg.payloadlen = nread+ crypto_secretbox_NONCEBYTES + crypto_secretbox_ZEROBYTES;
-     
-      } else {
+        pubmsg.payloadlen = nread + crypto_secretbox_NONCEBYTES + crypto_secretbox_ZEROBYTES;
+      }
+      else
+      {
         pubmsg.payload = buffer;
         pubmsg.payloadlen = nread;
       }
