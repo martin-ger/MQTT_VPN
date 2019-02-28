@@ -11,7 +11,7 @@ Encryption and authentication is implemented via a preshared password for all cl
 With encryption in place, an adversary controlling the MQTT broker or the network can still observe the traffic pattern (who is when sending packets to whom) and packet lengths as well as replaying single packets, but he won't be able to decode any packet or send own packets.
 
 ## Arduino ESP8266
-In the mqtt_vpn_arduino directory you will find a sample sketch and all required lib files. The sample "mqtt_vpn_arduino.ino" is derived from the standard WiFiTelnetToSerial sample. The only difference is, that it calls:
+In the mqtt_vpn_arduino directory you will find a sample sketch and all required lib files. It compiles with LwIP Version "1.4 high bandwidth". The sample "mqtt_vpn_arduino.ino" is derived from the standard WiFiTelnetToSerial sample. The only difference is, that it calls:
 ```
   my_if = mqtt_if_init(broker, mqtt_vpn_addr, vpn_password);
 ```
