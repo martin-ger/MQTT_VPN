@@ -11,6 +11,7 @@ void mqtt_if_del(struct mqtt_if_data *data);
 
 void mqtt_if_subscribe(struct mqtt_if_data *data);
 void mqtt_if_unsubscribe(struct mqtt_if_data *data);
+void mqtt_if_set_password(struct mqtt_if_data *data, char *password);
 
 void mqtt_if_set_ipaddr(struct mqtt_if_data *data, uint32_t addr);
 void mqtt_if_set_netmask(struct mqtt_if_data *data, uint32_t addr);
