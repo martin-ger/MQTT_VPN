@@ -122,7 +122,11 @@ struct mqtt_if_data *mqtt_if_init(char *broker, IPAddress ipaddr, char *password
 }
 
 static err_t ICACHE_FLASH_ATTR
+#if (LWIP_VERSION_MAJOR == 2U)
+mqtt_if_output(struct netif *netif, struct pbuf *p, const ip_addr_t *ipaddr)
+#else
 mqtt_if_output(struct netif *netif, struct pbuf *p, ip_addr_t *ipaddr)
+#endif
 {
   struct mqtt_if_data *data = (struct mqtt_if_data *)netif->state;
   struct ip_hdr *iph;
@@ -204,7 +208,7 @@ void ICACHE_FLASH_ATTR mqtt_if_input(struct mqtt_if_data *data, const char *topi
 static err_t ICACHE_FLASH_ATTR
 mqtt_if_init(struct netif *netif)
 {
-  NETIF_INIT_SNMP(netif, snmp_ifType_other, 0);
+  //NETIF_INIT_SNMP(netif, snmp_ifType_other, 0);
   netif->name[0] = 'm';
   netif->name[1] = 'q';
 

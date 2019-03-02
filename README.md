@@ -13,8 +13,6 @@ With encryption in place, an adversary controlling the MQTT broker or the networ
 ## Arduino ESP8266
 In the mqtt_vpn_arduino directory you find a library for ESP8266 Arduino. Just download the zip-file, extract it, and drop the mqtt_vpn_arduino directory into the libraries directory of your Arduino ESP8266 installation.
 
-**Important: Use the setting "lwip Variant: 1.4 High Bandwidth" in the "Tools" menu**
-
 Usage:
 ```
 #include <ESP8266WiFi.h>
