@@ -44,6 +44,14 @@
 
 #include "mqtt/queue.h"
 
+/*
+#ifdef MQTT_INFO
+#undef MQTT_INFO
+extern db_printf(char *fmt, ...);
+#define MQTT_INFO db_printf
+#endif
+*/
+
 #define MQTT_TASK_PRIO            2
 #define MQTT_TASK_QUEUE_SIZE      1
 #define MQTT_SEND_TIMOUT      5
@@ -1008,4 +1016,3 @@ MQTT_SetUserPwd(MQTT_Client *mqttClient, const char* user, const char* pwd)
   mqttClient->connect_info.password[len] = 0;
   
 }
-

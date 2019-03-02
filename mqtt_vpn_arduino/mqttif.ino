@@ -1,13 +1,29 @@
 #include "mqttif.h"
-#include "MQTT.h"
+
+#ifndef BOOL
+#define BOOL boolean
+#endif
 
 extern "C" {
+#include <stddef.h>
+#include "mqtt/mqtt.h"
 #include "tweetnacl.h"
+
+void db_printf(char *fmt, ... );
 }
 
 #include <lwip/ip.h>
 #include <lwip/init.h>
 #include <lwip/dns.h>
+
+void db_printf(char *fmt, ... ){
+        char buf[256];
+        va_list args;
+        va_start (args, fmt );
+        vsnprintf(buf, 256, fmt, args);
+        va_end (args);
+        Serial.print(buf);
+}
 
 struct mqtt_if_data {
   struct netif netif;
@@ -24,6 +40,11 @@ struct mqtt_if_data {
 
 MQTT_Client mqttClient;
 struct mqtt_if_data *mqtt_if;
+
+#define MQTT_IF_TASK_PRIO            1
+#define MQTT_IF_TASK_QUEUE_SIZE      2
+
+os_event_t mqtt_if_procTaskQueue[MQTT_IF_TASK_QUEUE_SIZE];
 
 void mqtt_if_input(struct mqtt_if_data *data, const char* topic, uint32_t topic_len, const char *mqtt_data, uint32_t mqtt_data_len);
 struct mqtt_if_data *mqtt_if_add(MQTT_Client *cl, char *topic_pre);
@@ -44,11 +65,22 @@ static void mqttDataCb(uint32_t *args, const char* topic, uint32_t topic_len, co
   mqtt_if_input(mqtt_if, topic, topic_len, data, data_len);
 }
 
+void ICACHE_FLASH_ATTR mqtt_if_Task(os_event_t * e) {
+  struct pbuf *pb = (struct pbuf *) e->par;
+  if (pb == NULL)
+    return;
+  if (mqtt_if->netif.input(pb, &mqtt_if->netif) != ERR_OK) {
+    pbuf_free(pb);
+  }
+}
+
 struct mqtt_if_data *mqtt_if_init(char* broker, char* user, char* broker_password, int port, char *topic_pre, char* password, IPAddress ipaddr, IPAddress netmask, IPAddress gw) {
   unsigned char h[crypto_hash_BYTES];
   uint8_t mqtt_client_name[50];
   
   Serial.print("Init on broker: "); Serial.println(broker);
+
+  system_os_task(mqtt_if_Task, MQTT_IF_TASK_PRIO, mqtt_if_procTaskQueue, MQTT_IF_TASK_QUEUE_SIZE);
 
   MQTT_InitConnection(&mqttClient, (uint8_t *)broker, port, 0);
 //MQTT_InitClient(&mqttClient, MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS, MQTT_KEEPALIVE, MQTT_CLEAN_SESSION);
@@ -155,9 +187,12 @@ void ICACHE_FLASH_ATTR mqtt_if_input(struct mqtt_if_data *data, const char* topi
       pbuf_take(pb, mqtt_data, mqtt_data_len);
   
     }
-    if (data->netif.input(pb, &data->netif) != ERR_OK) {
-      pbuf_free(pb);
-    }
+
+    system_os_post(MQTT_IF_TASK_PRIO, 0, (os_param_t) pb);
+    
+//    if (data->netif.input(pb, &data->netif) != ERR_OK) {
+//      pbuf_free(pb);
+//    }
   }
 }
 
