@@ -1,20 +1,21 @@
+#include <Arduino.h>
+#include <ESP8266WiFi.h>
+
 #include "mqttif.h"
+#include <lwip/ip.h>
+#include <lwip/init.h>
+#include <lwip/dns.h>
 
 #ifndef BOOL
 #define BOOL boolean
 #endif
 
 extern "C" {
-#include <stddef.h>
 #include "mqtt/mqtt.h"
 #include "tweetnacl.h"
 
 void db_printf(char *fmt, ... );
 }
-
-#include <lwip/ip.h>
-#include <lwip/init.h>
-#include <lwip/dns.h>
 
 void db_printf(char *fmt, ... ){
         char buf[256];

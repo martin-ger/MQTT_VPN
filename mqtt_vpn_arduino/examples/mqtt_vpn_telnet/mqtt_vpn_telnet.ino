@@ -1,6 +1,7 @@
 /*
-    This sketch is a demo for the MQTT_VPN
-*/
+ *   This sketch is a demo for the MQTT_VPN
+ *   Edit the "..." lines in the config for your environment
+ */
 
 #include <ESP8266WiFi.h>
 #include "mqttif.h"

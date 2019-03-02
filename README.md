@@ -11,13 +11,15 @@ Encryption and authentication is implemented via a preshared password for all cl
 With encryption in place, an adversary controlling the MQTT broker or the network can still observe the traffic pattern (who is when sending packets to whom) and packet lengths as well as replaying single packets, but he won't be able to decode any packet or send own packets.
 
 ## Arduino ESP8266
-In the mqtt_vpn_arduino directory you will find a sample sketch and all required lib files. It compiles with LwIP Version "1.4 high bandwidth". The sample "mqtt_vpn_arduino.ino" is derived from the standard WiFiTelnetToSerial sample. The only difference is, that it calls:
+In the mqtt_vpn_arduino directory you find a library for ESP8266 Arduino. Just download the zip-file, extract it, and drop the mqtt_vpn_arduino directory into the libraries directory of your Arduino ESP8266 installation.
+
+**Important: Use the setting "lwip Variant: 1.4 High Bandwidth" in the "Tools" menu**
+
+The sample "mqtt_vpn_arduino.ino" is derived from the standard WiFiTelnetToSerial sample. The only difference is that it calls:
 ```
   my_if = mqtt_if_init(broker, mqtt_vpn_addr, vpn_password);
 ```
 is its setup() function. This sets up the new "mqttif" interface with the IP over MQTT tunneling. Now you can ping or telnet into the ESP8266 via the VPN from another ESP8266 using the same SW or from a linux box using the small programm below. If you give an empty password with "" encryption will be disabled. The demo sketch uses the hardcoded password "secret" and address 10.0.1.2/24. 
-
-BTW: Another ESP8266 version can be found in the mqtt_tun branch of the esp_wifi_repeater (https://github.com/martin-ger/esp_wifi_repeater/tree/mqtt_tun )
 
 ## Linux
 
