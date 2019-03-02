@@ -15,7 +15,26 @@ In the mqtt_vpn_arduino directory you find a library for ESP8266 Arduino. Just d
 
 **Important: Use the setting "lwip Variant: 1.4 High Bandwidth" in the "Tools" menu**
 
-The sample "mqtt_vpn_arduino.ino" is derived from the standard WiFiTelnetToSerial sample. The only difference is that it calls:
+Usage:
+```
+#include <ESP8266WiFi.h>
+#include "mqttif.h"
+
+...
+
+IPAddress mqtt_vpn_addr(10,0,1,2);
+struct mqtt_if_data *mqtt_if_init("broker", mqtt_vpn_addr, "password");
+```
+
+For more parameters for the initialization of the VPN you can also call:
+```
+struct mqtt_if_data *mqtt_if_init(char * broker, IPAddress ipaddr, char* password);
+struct mqtt_if_data *mqtt_if_init(char * broker, char* user, char* broker_password, IPAddress ipaddr, char* password);
+struct mqtt_if_data *mqtt_if_init(char * broker, char* user, char* broker_password, int port, char *topic_pre, char* password, IPAddress ipaddr, IPAddress netmask, IPAddress gw);
+
+```
+
+The sample "mqtt_vpn_telnet.ino" is derived from the standard WiFiTelnetToSerial sample. The only difference is that it calls:
 ```
   my_if = mqtt_if_init(broker, mqtt_vpn_addr, vpn_password);
 ```
