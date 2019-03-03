@@ -32,11 +32,13 @@ struct mqtt_if_data *mqtt_if_init(char * broker, char* user, char* broker_passwo
 
 ```
 
-The sample "mqtt_vpn_telnet.ino" is derived from the standard WiFiTelnetToSerial sample. The only difference is that it calls:
+The sample "mqtt_vpn_telnet" is derived from the standard WiFiTelnetToSerial sample. The only difference is that it calls:
 ```
   my_if = mqtt_if_init(broker, mqtt_vpn_addr, vpn_password);
 ```
 is its setup() function. This sets up the new "mqttif" interface with the IP over MQTT tunneling. Now you can ping or telnet into the ESP8266 via the VPN from another ESP8266 using the same SW or from a linux box using the small programm below. If you give an empty password with "" encryption will be disabled. The demo sketch uses the hardcoded password "secret" and address 10.0.1.2/24. 
+
+The sample "mqtt_vpn_webserver" is derived in the same way from the standard EPS8266WebServer/HelloServer sample. Here you have to edit WiFi SSID/password and the broker name/address. Now you can open "10.0.1.2" with a browser on a linux box (given that you have started the MQTT_VPN client as shown in the next section on this box).
 
 ## Linux
 
