@@ -40,6 +40,27 @@ is its setup() function. This sets up the new "mqttif" interface with the IP ove
 
 The sample "mqtt_vpn_webserver" is derived in the same way from the standard EPS8266WebServer/HelloServer sample. Here you have to edit WiFi SSID/password and the broker name/address. Now you can open "10.0.1.2" with a browser on a linux box (given that you have started the MQTT_VPN client as shown in the next section on this box).
 
+## ESP32 (ESP-IDF)
+
+In the mqtt_vpn_esp32 directory you find an implementation for the ESP32 and the ESP-IDF environment. The project is a clone of the webserver example and it is enhanced by the three files "mqttif.c", "mqttif.h", and "event_source.h" that implement the MQTT_VPN. In "main.c" you will find the additional lines:
+```
+#include "mqttif.h"
+
+...
+
+ip4_addr_t ipaddr;
+ip4_addr_t netmask;
+ip4_addr_t gw;
+
+IP4_ADDR(&ipaddr, 10,0,1,2);
+IP4_ADDR(&netmask, 255,255,255,0);
+IP4_ADDR(&gw, 0,0,0,0);
+
+mqtt_vpn_if_init("mqtt://mybroker.org:1883", "", "", "mqttip", "secret", ipaddr, netmask, gw);
+```
+
+Build it with the usual "make menuconfig" to configure ssid and password for the sample.
+
 ## Linux
 
 This Linux version can communicate with the Arduino version above. Run this prog in background and use all standard network tools (including wireshark).
