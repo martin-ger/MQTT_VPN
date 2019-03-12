@@ -141,7 +141,7 @@ mqtt_if_output(struct netif *netif, struct pbuf *p, ip_addr_t *ipaddr)
     len = pbuf_copy_partial(p, data->buf + crypto_secretbox_ZEROBYTES, sizeof(data->buf) - crypto_secretbox_ZEROBYTES, 0);
     crypto_secretbox(data->cypherbuf_buf + crypto_secretbox_NONCEBYTES, data->buf, len + crypto_secretbox_ZEROBYTES, data->cypherbuf_buf, data->key);
 
-    MQTT_Publish(data->mqttcl, buf, (const char *)data->cypherbuf_buf, len + crypto_secretbox_NONCEBYTES + crypto_secretbox_ZEROBYTES, 0, 1);
+    MQTT_Publish(data->mqttcl, buf, (const char *)data->cypherbuf_buf, len + crypto_secretbox_NONCEBYTES + crypto_secretbox_ZEROBYTES, 0, 0);
   }
   else
   {
@@ -151,7 +151,7 @@ mqtt_if_output(struct netif *netif, struct pbuf *p, ip_addr_t *ipaddr)
     //os_printf("packet %d, buf %x\r\n", len, p);
     //os_printf("to: " IPSTR " from: " IPSTR " via " IPSTR "\r\n", IP2STR(&iph->dest), IP2STR(&iph->src), IP2STR(ipaddr));
 
-    MQTT_Publish(data->mqttcl, (const char *)buf, (const char *)data->buf, len, 0, 1);
+    MQTT_Publish(data->mqttcl, (const char *)buf, (const char *)data->buf, len, 0, 0);
   }
   return 0;
 }
