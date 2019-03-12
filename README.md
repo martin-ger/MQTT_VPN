@@ -38,7 +38,7 @@ The sample "mqtt_vpn_telnet" is derived from the standard WiFiTelnetToSerial sam
 ```
 is its setup() function. This sets up the new "mqttif" interface with the IP over MQTT tunneling. Now you can ping or telnet into the ESP8266 via the VPN from another ESP8266 using the same SW or from a linux box using the small programm below. If you give an empty password with "" encryption will be disabled. The demo sketch uses the hardcoded password "secret" and address 10.0.1.2/24. 
 
-The sample "mqtt_vpn_webserver" is derived in the same way from the standard EPS8266WebServer/HelloServer sample. Here you have to edit WiFi SSID/password and the broker name/address. Now you can open "10.0.1.2" with a browser on a linux box (given that you have started the MQTT_VPN client as shown in the next section on this box).
+The sample "mqtt_vpn_webserver" is derived in the same way from the standard EPS8266WebServer/HelloServer sample. Here you have to edit WiFi SSID/password and the broker name/address. Now you can open "10.0.1.2" with a browser on a linux box (given that you have started the MQTT_VPN client there as shown in the linux section below).
 
 ## ESP32 (ESP-IDF)
 
@@ -63,7 +63,7 @@ Build it with the usual "make menuconfig" to configure ssid and password for the
 
 ## Linux
 
-This Linux version can communicate with the Arduino version above. Run this prog in background and use all standard network tools (including wireshark).
+This Linux version can communicate with the Arduino and the ESP32 version above. Run this prog in background and use all standard network tools (including wireshark).
 If you start for example:
 ```
 sudo ./mqtt_vpn -i mq0 -a 10.0.1.1 -b tcp://my_broker.org:1883 -k secret -d
@@ -98,4 +98,3 @@ Requires the Paho MQTT C Client Library (https://www.eclipse.org/paho/files/mqtt
 
 ## Thanks
 - tuanpmt for esp_mqtt (https://github.com/tuanpmt/esp_mqtt )
-- Ingo Randolf for esp-mqtt-arduino (https://github.com/i-n-g-o/esp-mqtt-arduino)
