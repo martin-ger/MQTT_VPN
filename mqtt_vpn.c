@@ -320,6 +320,7 @@ int main(int argc, char *argv[])
 
   MQTTClient client;
   MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
+  MQTTClient_SSLOptions ssl_opts = MQTTClient_SSLOptions_initializer;
   MQTTClient_message pubmsg = MQTTClient_message_initializer;
   MQTTClient_deliveryToken token;
 
@@ -490,6 +491,9 @@ int main(int argc, char *argv[])
   conn_opts.cleansession = 1;
 
   MQTTClient_setCallbacks(client, NULL, connlost, msgarrvd, delivered);
+  ssl_opts.verify = 0;
+  ssl_opts.enableServerCertAuth = 0;
+  conn_opts.ssl = &ssl_opts;
 
   if ((rc = MQTTClient_connect(client, &conn_opts)) != MQTTCLIENT_SUCCESS)
   {
