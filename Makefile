@@ -7,7 +7,7 @@ CC = gcc
 CFLAGS  = -g -Wall
 
 # libraries
-LIBS	= -lpaho-mqtt3c -lnacl
+LIBS	= -lpaho-mqtt3cs -lnacl
 
 # the build target executable:
 TARGET = mqtt_vpn
