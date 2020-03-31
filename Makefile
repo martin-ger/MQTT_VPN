@@ -6,7 +6,7 @@ CC = gcc
 #  -Wall turns on most, but not all, compiler warnings
 CFLAGS  = -g -Wall
 
-# libraries
+# libraries 
 LIBS	= -lpaho-mqtt3cs -lnacl
 
 # the build target executable:
