@@ -70,9 +70,15 @@ struct in6_ifreq
   unsigned int ifr6_ifindex;
 };
 
+MQTTClient client;
+MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
 char *receive_topic, *broadcast_topic;
 u_char key[crypto_secretbox_KEYBYTES];
 unsigned char key_set = 0;
+
+char *if_addr = NULL;
+char *broker = NULL;
+char *cl_id = NULL;
 
 int debug;
 char *progname;
@@ -119,7 +125,7 @@ int tun_alloc(char *dev, int flags)
  * cread: read routine that checks for errors and exits if an error is    *
  *        returned.                                                       *
  **************************************************************************/
-int cread(int fd, char *buf, int n)
+int cread(int fd, unsigned char *buf, int n)
 {
 
   int nread;
@@ -136,7 +142,7 @@ int cread(int fd, char *buf, int n)
  * cwrite: write routine that checks for errors and exits if an error is  *
  *         returned.                                                      *
  **************************************************************************/
-int cwrite(int fd, char *buf, int n)
+int cwrite(int fd, unsigned char *buf, int n)
 {
 
   int nwrite;
@@ -153,7 +159,7 @@ int cwrite(int fd, char *buf, int n)
  * read_n: ensures we read exactly n bytes, and puts those into "buf".    *
  *         (unless EOF, of course)                                        *
  **************************************************************************/
-int read_n(int fd, char *buf, int n)
+int read_n(int fd, unsigned char *buf, int n)
 {
 
   int nread, left = n;
@@ -271,7 +277,7 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
       /* write it into the tun/tap interface */
       if (packet_len <= 1500)
       {
-        nwrite = cwrite(tap_fd, (char *)packet_start, packet_len);
+        nwrite = cwrite(tap_fd, (unsigned char *)packet_start, packet_len);
         do_debug("NET2TAP %lu: Written %d bytes to the tap interface\n", net2tap, nwrite);
       }
       else
@@ -287,11 +293,38 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
   return 1;
 }
 
+void mqttconnect()
+{
+  int rc;
+
+  if ((rc = MQTTClient_connect(client, &conn_opts)) != MQTTCLIENT_SUCCESS)
+  {
+    fprintf(stderr, "Failed to connect, return code %d\n", rc);
+    exit(-1);
+  }
+  do_debug("Successfully connected client %s to the MQTT broker %s\n", cl_id, broker);
+
+  receive_topic = malloc(sizeof(TOPIC_PRE) + strlen(if_addr) + 2);
+  sprintf(receive_topic, "%s/%s", TOPIC_PRE, if_addr);
+  do_debug("Subscribing to topic %s\n", receive_topic);
+  MQTTClient_subscribe(client, receive_topic, QOS);
+
+  broadcast_topic = malloc(sizeof(TOPIC_PRE) + sizeof("/255.255.255.255") + 1);
+  sprintf(broadcast_topic, "%s/255.255.255.255", TOPIC_PRE);
+  do_debug("Subscribing to topic %s\n", broadcast_topic);
+  MQTTClient_subscribe(client, broadcast_topic, QOS);
+
+  fprintf(stderr, "MQTT VPN client %s on broker %s for ip address %s started\n", cl_id, broker, if_addr);
+}
 void connlost(void *context, char *cause)
 {
   fprintf(stderr, "\nConnection lost\n");
   fprintf(stderr, "     cause: %s\n", cause);
+  fprintf(stderr, "\nReconnecting...\n");
+  mqttconnect();
 }
+
+
 
 int main(int argc, char *argv[])
 {
@@ -299,15 +332,12 @@ int main(int argc, char *argv[])
   int option;
   int flags = IFF_TUN;
   char if_name[IFNAMSIZ] = "";
-  char *if_addr = NULL;
   char if_mask[20] = "255.255.255.0";
   char *if_addr6 = NULL;
   int pre6 = 64;
-  char *broker = NULL;
-  char *cl_id = NULL;
   int maxfd;
   uint16_t nread;
-  char buffer[BUFSIZE];
+  unsigned char buffer[BUFSIZE];
   unsigned char plain_buf[BUFSIZE + crypto_secretbox_ZEROBYTES];
   unsigned char cypher_buf[BUFSIZE + crypto_secretbox_NONCEBYTES + crypto_secretbox_ZEROBYTES];
   int ip_fd, ip6_fd;
@@ -315,11 +345,8 @@ int main(int argc, char *argv[])
   struct ifreq ifr;
   struct sockaddr_in6 sai;
   struct in6_ifreq ifr6;
-  int rc;
   unsigned char h[crypto_hash_BYTES];
 
-  MQTTClient client;
-  MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
   MQTTClient_SSLOptions ssl_opts = MQTTClient_SSLOptions_initializer;
   MQTTClient_message pubmsg = MQTTClient_message_initializer;
   MQTTClient_deliveryToken token;
@@ -495,24 +522,7 @@ int main(int argc, char *argv[])
   ssl_opts.enableServerCertAuth = 0;
   conn_opts.ssl = &ssl_opts;
 
-  if ((rc = MQTTClient_connect(client, &conn_opts)) != MQTTCLIENT_SUCCESS)
-  {
-    fprintf(stderr, "Failed to connect, return code %d\n", rc);
-    exit(-1);
-  }
-  do_debug("Successfully connected client %s to the MQTT broker %s\n", cl_id, broker);
-
-  receive_topic = malloc(sizeof(TOPIC_PRE) + strlen(if_addr) + 2);
-  sprintf(receive_topic, "%s/%s", TOPIC_PRE, if_addr);
-  do_debug("Subscribing to topic %s\n", receive_topic);
-  MQTTClient_subscribe(client, receive_topic, QOS);
-
-  broadcast_topic = malloc(sizeof(TOPIC_PRE) + sizeof("/255.255.255.255") + 1);
-  sprintf(broadcast_topic, "%s/255.255.255.255", TOPIC_PRE);
-  do_debug("Subscribing to topic %s\n", broadcast_topic);
-  MQTTClient_subscribe(client, broadcast_topic, QOS);
-
-  fprintf(stderr, "MQTT VPN client %s on broker %s for ip address %s started\n", cl_id, broker, if_addr);
+  mqttconnect();
 
   /* use select() to handle more than one descriptor at once */
   maxfd = tap_fd;
