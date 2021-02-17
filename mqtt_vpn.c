@@ -73,6 +73,9 @@ struct in6_ifreq
 MQTTClient client;
 MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
 char *receive_topic, *broadcast_topic;
+#define N_ADDR_MAX 10
+uint8_t n_addr=0;
+char *addr_topic[N_ADDR_MAX];
 u_char key[crypto_secretbox_KEYBYTES];
 unsigned char key_set = 0;
 
@@ -228,6 +231,7 @@ void usage(void)
   fprintf(stderr, "-x <prefix>: prefix length of the IPv6 address (default 64)\n");
   fprintf(stderr, "-n <clientid>: ID of MQTT client (%s<random>)\n", CLIENTID_PRE);
   fprintf(stderr, "-d: outputs debug information while running\n");
+  fprintf(stderr, "-t <ip>: IP address of a target to NAT\n");
   fprintf(stderr, "-h: prints this help text\n");
   exit(1);
 }
@@ -250,8 +254,13 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
 
   do_debug("Message arrived %d bytes on topic: %s\n", message->payloadlen, topicName);
 
-  if (strncmp(topicName, receive_topic, topicLen) == 0 ||
-      strncmp(topicName, broadcast_topic, topicLen) == 0)
+  uint8_t i=0;
+  while (i<n_addr && !(strncmp(topicName, addr_topic[i], topicLen) == 0))
+  {
+    ++i;
+  }
+
+  if (i<n_addr)
   {
     net2tap++;
 
@@ -293,6 +302,26 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
   return 1;
 }
 
+void mqtt_if_add_reading_topic(const char* addr)
+{
+  // warning : silently discard address registration above N_ADDR_MAX
+  if (n_addr<N_ADDR_MAX)
+  {
+    addr_topic[n_addr] = malloc(sizeof(TOPIC_PRE) + strlen(addr) + 2);
+    sprintf(addr_topic[n_addr], "%s/%s", TOPIC_PRE, addr);
+    n_addr++;
+  }
+}
+
+void mqtt_if_subscribe()
+{
+  for (uint8_t i=0; i<n_addr; ++i)
+  {
+    do_debug("Subscribing to topic %s\n", addr_topic[i]);
+    MQTTClient_subscribe(client, addr_topic[i], QOS);
+  }
+}
+
 void mqttconnect()
 {
   int rc;
@@ -304,15 +333,9 @@ void mqttconnect()
   }
   do_debug("Successfully connected client %s to the MQTT broker %s\n", cl_id, broker);
 
-  receive_topic = malloc(sizeof(TOPIC_PRE) + strlen(if_addr) + 2);
-  sprintf(receive_topic, "%s/%s", TOPIC_PRE, if_addr);
-  do_debug("Subscribing to topic %s\n", receive_topic);
-  MQTTClient_subscribe(client, receive_topic, QOS);
-
-  broadcast_topic = malloc(sizeof(TOPIC_PRE) + sizeof("/255.255.255.255") + 1);
-  sprintf(broadcast_topic, "%s/255.255.255.255", TOPIC_PRE);
-  do_debug("Subscribing to topic %s\n", broadcast_topic);
-  MQTTClient_subscribe(client, broadcast_topic, QOS);
+  mqtt_if_add_reading_topic(if_addr);
+  mqtt_if_add_reading_topic("255.255.255.255");
+  mqtt_if_subscribe();
 
   fprintf(stderr, "MQTT VPN client %s on broker %s for ip address %s started\n", cl_id, broker, if_addr);
 }
@@ -323,8 +346,6 @@ void connlost(void *context, char *cause)
   fprintf(stderr, "\nReconnecting...\n");
   mqttconnect();
 }
-
-
 
 int main(int argc, char *argv[])
 {
@@ -355,7 +376,7 @@ int main(int argc, char *argv[])
   srand(time(NULL));
 
   /* Check command line options */
-  while ((option = getopt(argc, argv, "i:a:m:k:6:x:b:u:p:n:hd")) > 0)
+  while ((option = getopt(argc, argv, "i:a:m:k:6:x:b:u:p:n:t:hd")) > 0)
   {
     switch (option)
     {
@@ -397,6 +418,9 @@ int main(int argc, char *argv[])
     case 'm':
       strncpy(if_mask, optarg, sizeof(if_mask));
       if_addr[sizeof(if_mask) - 1] = '\0';
+      break;
+    case 't':
+      mqtt_if_add_reading_topic(optarg);
       break;
     default:
       my_err("Unknown option %c\n", option);
