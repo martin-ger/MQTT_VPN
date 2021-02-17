@@ -28,6 +28,7 @@ void db_printf(char *fmt, ...)
   Serial.print(buf);
 }
 
+#define N_ADDR_MAX 10
 struct mqtt_if_data
 {
   struct netif netif;
@@ -40,6 +41,8 @@ struct mqtt_if_data
   u_char key[crypto_secretbox_KEYBYTES];
   u_char buf[2048];
   u_char cypherbuf_buf[2048];
+  uint8_t n_addr;
+  char* addr_topic[N_ADDR_MAX];
 };
 
 MQTT_Client mqttClient;
@@ -104,6 +107,9 @@ struct mqtt_if_data *mqtt_if_init(char *broker, char *user, char *broker_passwor
   mqtt_if_set_gw(mqtt_if, gw);
   mqtt_if_set_up(mqtt_if);
 
+  mqtt_if_add_reading_topic(mqtt_if, ipaddr);
+  mqtt_if_add_reading_topic(mqtt_if, IPAddress(255,255,255,255));
+
   mqtt_if_set_password(mqtt_if, password);
 
   MQTT_Connect(&mqttClient);
@@ -164,8 +170,15 @@ void ICACHE_FLASH_ATTR mqtt_if_input(struct mqtt_if_data *data, const char *topi
   struct pbuf *pb;
   //os_printf("Received %s - %d bytes\r\n", buf, mqtt_data_len);
 
-  if ((topic_len == os_strlen((const char *)data->receive_topic) && os_strncmp((const char *)topic, (const char *)data->receive_topic, topic_len) == 0) ||
-      (topic_len == os_strlen((const char *)data->broadcast_topic) && os_strncmp((const char *)topic, (const char *)data->broadcast_topic, topic_len) == 0))
+  uint8_t i=0;
+  while (i<data->n_addr && \
+    !(topic_len == os_strlen((const char *)data->addr_topic[i]) && \
+      os_strncmp((const char *)topic, (const char *)data->addr_topic[i], topic_len) == 0))
+  {
+    ++i;
+  }
+
+  if (i<data->n_addr)
   {
 
     if (data->key_set)
@@ -205,6 +218,27 @@ void ICACHE_FLASH_ATTR mqtt_if_input(struct mqtt_if_data *data, const char *topi
   }
 }
 
+void mqtt_if_add_reading_topic(struct mqtt_if_data *data, IPAddress addr)
+{
+  // warning : silently discard address registration above N_ADDR_MAX
+  if (data->n_addr<N_ADDR_MAX)
+  {
+    ip_addr_t ipaddr;
+    ipaddr.addr = addr;
+    data->addr_topic[data->n_addr] = (char *)malloc(os_strlen((const char *)data->topic_pre) + 20);
+    os_sprintf(data->addr_topic[data->n_addr], "%s/" IPSTR, (char *)data->topic_pre, IP2STR(&ipaddr));
+    data->n_addr++;
+  }
+}
+
+void mqtt_if_flush_reading_topic(struct mqtt_if_data *data)
+{
+	for (uint8_t i=0; i<data->n_addr; ++i)
+	{
+		free(data->addr_topic[i]);
+	}
+}
+
 static err_t ICACHE_FLASH_ATTR
 mqtt_if_init(struct netif *netif)
 {
@@ -239,6 +273,7 @@ mqtt_if_add(MQTT_Client *cl, char *topic_prefix)
   //Serial.println(data->receive_topic);
   //Serial.print("broadcast_topic : ");
   //Serial.println(data->broadcast_topic);
+  data->n_addr = 0;
 
   netif_add(&data->netif, NULL, NULL, NULL, data, mqtt_if_init, ip_input);
   //	netif_set_default(&data->netif);
@@ -253,14 +288,17 @@ mqtt_if_del(struct mqtt_if_data *data)
   free(data->topic_pre);
   free(data->receive_topic);
   free(data->broadcast_topic);
+  mqtt_if_flush_reading_topic(data);
   free(data);
 }
 
 void ICACHE_FLASH_ATTR
 mqtt_if_subscribe(struct mqtt_if_data *data)
 {
-  MQTT_Subscribe(data->mqttcl, data->receive_topic, 0);
-  MQTT_Subscribe(data->mqttcl, data->broadcast_topic, 0);
+  for (uint8_t i=0; i<data->n_addr; ++i)
+  {
+	MQTT_Subscribe(data->mqttcl, data->addr_topic[i], 0);
+  }
   //Serial.println("Subscribed");
 
   data->netif.flags != NETIF_FLAG_LINK_UP;
@@ -269,8 +307,10 @@ mqtt_if_subscribe(struct mqtt_if_data *data)
 void ICACHE_FLASH_ATTR
 mqtt_if_unsubscribe(struct mqtt_if_data *data)
 {
-  MQTT_UnSubscribe(data->mqttcl, data->receive_topic);
-  MQTT_UnSubscribe(data->mqttcl, data->broadcast_topic);
+  for (uint8_t i=0; i<data->n_addr; ++i)
+  {
+	MQTT_UnSubscribe(data->mqttcl, data->addr_topic[i]);
+  }
   //Serial.println("UnSubscribed");
 
   data->netif.flags &= ~NETIF_FLAG_LINK_UP;
