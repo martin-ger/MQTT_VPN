@@ -11,6 +11,9 @@ struct mqtt_if_data *mqtt_vpn_if_init(char * broker, char* user, char* broker_pa
 
 void mqtt_if_del(struct mqtt_if_data *data);
 
+void mqtt_if_add_reading_topic(struct mqtt_if_data *data, IPAddress addr);
+void mqtt_if_flush_reading_topic(struct mqtt_if_data *data);
+
 void mqtt_if_subscribe(struct mqtt_if_data *data);
 void mqtt_if_unsubscribe(struct mqtt_if_data *data);
 void mqtt_if_set_password(struct mqtt_if_data *data, char *password);
