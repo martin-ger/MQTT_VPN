@@ -17,7 +17,15 @@ char* broker = "...";
 char* vpn_password = "secret";
 int broker_port = 1883;
 IPAddress mqtt_vpn_addr(10,0,1,2);
-// The hard coded address we want to be nated
+
+/* 
+ *   The following address must point to another machine
+ *   which will also be fully accessible, via the vpn tunnel,
+ *   by the host on the other side of the tunnel.
+ *   We will NAT every packets destinated to this address
+ *   on our local wifi network with the ip_napt_enable call.
+ *   This should be set consistently with WiFi.localIP()
+ */
 IPAddress mqtt_vpn_target_addr(172,16,0,100);
 
 // Broker settings
