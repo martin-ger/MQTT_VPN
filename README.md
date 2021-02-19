@@ -40,6 +40,8 @@ is its setup() function. This sets up the new "mqttif" interface with the IP ove
 
 The sample "mqtt_vpn_webserver" is derived in the same way from the standard EPS8266WebServer/HelloServer sample. Here you have to edit WiFi SSID/password and the broker name/address. Now you can open "10.0.1.2" with a browser on a linux box (given that you have started the MQTT_VPN client there as shown in the linux section below).
 
+The sample "mqtt_vpn_nat" is derived from the standard RangeExtender-NAPT and allows you to contact, via the VPN tunnel, another host (the hard-coded address 172.16.0.100, adapt it to your needs) within the ESP8266 wifi network (the ESP is connected as STA). You can call ```mqtt_if_add_reading_topic``` multiple times to allow the ESP to forward packets to multiple hosts. Please note that an upper limit of 8 hosts exists in the source tree (```mqttif.c``` defines a max of ```N_ADDR_MAX=10``` topics (=ESP address in the tunnel + broadcast + 8 addresses) to be subscribed on the MQTT server).
+
 ## ESP32 (ESP-IDF)
 
 In the mqtt_vpn_esp32 directory you find an implementation for the ESP32 and the ESP-IDF environment. The project is a clone of the webserver example and it is enhanced by the three files "mqttif.c", "mqttif.h", and "event_source.h" that implement the MQTT_VPN. In "main.c" you will find the additional lines:
@@ -87,6 +89,7 @@ mqtt_vpn -i <if_name> -a <ip> -b <broker> [-m <netmask>] [-n <clientid>] [-d]
 -6 <ip6>: IPv6 address of interface to use
 -x <prefix>: prefix length of the IPv6 address (default 64)
 -n <clientid>: ID of MQTT client (MQTT_VPN_<random>)
+-t <ip>: IP address of a target to NAT
 -d: outputs debug information while running
 -h: prints this help text
 ```
