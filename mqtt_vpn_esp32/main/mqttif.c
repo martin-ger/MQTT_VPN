@@ -21,7 +21,6 @@ esp_event_loop_handle_t loop_with_task;
 
 static const char *TAG = "MQTTIF";
 
-#define N_ADDR_MAX 10
 struct mqtt_if_data
 {
     struct netif netif;
@@ -37,8 +36,6 @@ struct mqtt_if_data
     char intopic[128];
     int intopic_len;
     //u_char cypherbuf_buf[2048];
-    uint8_t n_addr;
-    char* addr_topic[N_ADDR_MAX];
 };
 
 struct mqtt_pub_data
@@ -122,7 +119,7 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
     return ESP_OK;
 }
 
-ESP_EVENT_DEFINE_BASE(MQTTVPN_EVENTS)
+ESP_EVENT_DEFINE_BASE(MQTTVPN_EVENTS);
 
 static void packet_receive_handler(void* handler_args, esp_event_base_t base, int32_t id, void* event_data)
 {
@@ -174,9 +171,6 @@ struct mqtt_if_data *mqtt_vpn_if_init(char *broker, char *user, char *broker_pas
     mqtt_if_set_netmask(mqtt_if, netmask.addr);
     mqtt_if_set_gw(mqtt_if, gw.addr);
     mqtt_if_set_up(mqtt_if);
-
-    mqtt_if_add_reading_topic(mqtt_if, ipaddr);
-    mqtt_if_add_reading_topic(mqtt_if, IPAddress(255,255,255,255));
 
     mqtt_if_set_password(mqtt_if, password);
 
@@ -258,15 +252,8 @@ void mqtt_if_input(struct mqtt_if_data *data, const char *topic, uint32_t topic_
 
     ESP_LOGI(TAG, "Received %s - %d bytes", buf, mqtt_data_len);
 
-    uint8_t i=0;
-    while (i<data->n_addr && \
-        !(topic_len == os_strlen((const char *)data->addr_topic[i]) && \
-        os_strncmp((const char *)topic, (const char *)data->addr_topic[i], topic_len) == 0))
-    {
-        ++i;
-    }
-
-    if (i<data->n_addr)
+    if ((topic_len == strlen((const char *)data->receive_topic) && strncmp((const char *)topic, (const char *)data->receive_topic, topic_len) == 0) ||
+        (topic_len == strlen((const char *)data->broadcast_topic) && strncmp((const char *)topic, (const char *)data->broadcast_topic, topic_len) == 0))
     {
 
         if (data->key_set)
@@ -314,26 +301,6 @@ void mqtt_if_input(struct mqtt_if_data *data, const char *topic, uint32_t topic_
     }
 }
 
-void mqtt_if_add_reading_topic(struct mqtt_if_data *data, IPAddress addr)
-{
-    // warning : silently discard address registration above N_ADDR_MAX
-    if (data->n_addr<N_ADDR_MAX)
-    {
-        ip_addr_t ipaddr;
-        ipaddr.addr = addr;
-        data->addr_topic[data->n_addr] = (char *)malloc(os_strlen((const char *)data->topic_pre) + 20);
-        os_sprintf(data->addr_topic[data->n_addr], "%s/" IPSTR, (char *)data->topic_pre, IP2STR(&ipaddr));
-        data->n_addr++;
-    }
-}
-
-void mqtt_if_flush_reading_topic(struct mqtt_if_data *data)
-{
-    for (uint8_t i=0; i<data->n_addr; ++i)
-    {
-        free(data->addr_topic[i]);
-    }
-}
 
 static err_t mqtt_if_init(struct netif *netif)
 {
@@ -363,8 +330,6 @@ struct mqtt_if_data *mqtt_if_add(esp_mqtt_client_handle_t cl, char *topic_prefix
     data->broadcast_topic = (char *)malloc(strlen((const char *)topic_prefix) + 20);
     sprintf(data->broadcast_topic, "%s/255.255.255.255", data->topic_pre);
 
-    data->n_addr = 0;
-
     netif_add(&data->netif, NULL, NULL, NULL, data, mqtt_if_init, ip_input);
     //	netif_set_default(&data->netif);
     return data;
@@ -377,16 +342,13 @@ void mqtt_if_del(struct mqtt_if_data *data)
     free(data->topic_pre);
     free(data->receive_topic);
     free(data->broadcast_topic);
-    mqtt_if_flush_reading_topic(data);
     free(data);
 }
 
 void mqtt_if_subscribe(struct mqtt_if_data *data)
 {
-    for (uint8_t i=0; i<data->n_addr; ++i)
-    {
-        esp_mqtt_client_subscribe(data->mqttcl, data->addr_topic[i], 0);
-    }
+    esp_mqtt_client_subscribe(data->mqttcl, data->receive_topic, 0);
+    esp_mqtt_client_subscribe(data->mqttcl, data->broadcast_topic, 0);
 
     mqtt_if_set_flag(data, NETIF_FLAG_LINK_UP);
 
@@ -396,10 +358,8 @@ void mqtt_if_subscribe(struct mqtt_if_data *data)
 
 void mqtt_if_unsubscribe(struct mqtt_if_data *data)
 {
-    for (uint8_t i=0; i<data->n_addr; ++i)
-    {
-        esp_mqtt_client_unsubscribe(data->mqttcl, data->addr_topic[i]);
-    }
+    esp_mqtt_client_unsubscribe(data->mqttcl, data->receive_topic);
+    esp_mqtt_client_unsubscribe(data->mqttcl, data->broadcast_topic);
 
     mqtt_if_clear_flag(data, NETIF_FLAG_LINK_UP);
 
