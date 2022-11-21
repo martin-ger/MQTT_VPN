@@ -96,6 +96,9 @@ mqtt_vpn -i <if_name> -a <ip> -b <broker> [-m <netmask>] [-n <clientid>] [-d]
 
 Requires the Paho MQTT C Client Library (https://www.eclipse.org/paho/files/mqttdoc/MQTTClient/html/index.html ) and the libnacl for the crypto operations.
 
+See mqttVPNdependencyInstaller.sh for help building/installing the libs. Just do `sudo chmod +x ./mqttVPNdependencyInstaller.sh` to enable it to execute. It will go all the way through and also run the make command to build the target executable "mqtt_vpn" which you then simply run as:
+`sudo ./mqtt_vpn`
+
 ## Future Issues
 - IPv6 as VPN
 
