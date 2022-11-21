@@ -189,7 +189,7 @@ struct mqtt_if_data* mqtt_vpn_if_init(char *broker, char *user, char *broker_pas
     mqtt_if_set_password(mqtt_if, password);
 
     esp_event_loop_args_t loop_with_task_args = {
-        .queue_size = 5,
+        .queue_size = 50,
         .task_name = "loop_task", // task will be created
         .task_priority = uxTaskPriorityGet(NULL),
         .task_stack_size = 4096,
