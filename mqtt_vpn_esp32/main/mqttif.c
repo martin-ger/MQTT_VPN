@@ -23,6 +23,7 @@ extern "C" {
 #include "event_source.h"
 
 esp_event_loop_handle_t loop_with_task;
+bool _subscribeAllTraffic = false;
 
 static const char *TAG = "MQTTIF";
 
@@ -189,7 +190,7 @@ struct mqtt_if_data* mqtt_vpn_if_init(char *broker, char *user, char *broker_pas
     mqtt_if_set_password(mqtt_if, password);
 
     esp_event_loop_args_t loop_with_task_args = {
-        .queue_size = 50,
+        .queue_size = 33,
         .task_name = "loop_task", // task will be created
         .task_priority = uxTaskPriorityGet(NULL),
         .task_stack_size = 4096,
@@ -242,8 +243,13 @@ static err_t mqtt_if_output(struct netif *netif, struct pbuf *p, const ip4_addr_
         crypto_secretbox((u_char *)pub_data->data_buf + crypto_secretbox_NONCEBYTES, (u_char *)buf, len + crypto_secretbox_ZEROBYTES, (u_char *)pub_data->data_buf, if_state->key);
         pub_data->data_len = len + crypto_secretbox_NONCEBYTES + crypto_secretbox_ZEROBYTES;
 
-        esp_event_post_to(loop_with_task, MQTTVPN_EVENTS, PACKET_SEND_EVENT, &pub_data, sizeof(&pub_data), portMAX_DELAY);
-    }
+        if(esp_event_post_to(loop_with_task, MQTTVPN_EVENTS, PACKET_SEND_EVENT, &pub_data, sizeof(&pub_data), 0) != ESP_OK){
+            ESP_LOGD(TAG, "Event Queue Full, Drop Packet"); 
+            free(pub_data->data_buf);
+            free(pub_data->topic);
+            free(pub_data);
+            //pbuf_free(p);
+        }    }
     else
     {
         pub_data->data_len = pbuf_copy_partial(p, pub_data->data_buf, 2048, 0);
@@ -253,7 +259,13 @@ static err_t mqtt_if_output(struct netif *netif, struct pbuf *p, const ip4_addr_
         //printf("packet %d, buf %x\r\n", len, p);
         //printf("to: " IPSTR " from: " IPSTR " via " IPSTR "\r\n", IP2STR(&iph->dest), IP2STR(&iph->src), IP2STR(ipaddr));
 
-        esp_event_post_to(loop_with_task, MQTTVPN_EVENTS, PACKET_SEND_EVENT, &pub_data, sizeof(&pub_data), portMAX_DELAY);
+        //esp_event_post_to(loop_with_task, MQTTVPN_EVENTS, PACKET_SEND_EVENT, &pub_data, sizeof(&pub_data), portMAX_DELAY);
+        if(esp_event_post_to(loop_with_task, MQTTVPN_EVENTS, PACKET_SEND_EVENT, &pub_data, sizeof(pub_data), 0) != ESP_OK){
+            ESP_LOGD(TAG, "Event Queue Full, Drop Packet"); 
+            free(pub_data->data_buf);
+            free(pub_data->topic);
+            free(pub_data);
+        }
     }
     return ERR_OK;
 }
@@ -275,7 +287,7 @@ void mqtt_if_input(struct mqtt_if_data *data, const char *topic, uint32_t topic_
         ++i;
     }
 
-    if (i<data->n_addr)
+    if (i<data->n_addr || _subscribeAllTraffic)
       {
         if (data->key_set)
         {
@@ -331,6 +343,20 @@ void mqtt_if_add_reading_topic(struct mqtt_if_data *data, ip4_addr_t addr)
     sprintf(data->addr_topic[data->n_addr], "%s/" IPSTR, (char *)data->topic_pre, IP2STR(&addr));
     data->n_addr++;
   }
+  void mqtt_if_subscribe(struct mqtt_if_data *data);
+}
+
+void mqtt_if_add_wildcard_reading_topic(struct mqtt_if_data *data)
+{
+  // warning : silently discard address registration above N_ADDR_MAX
+  if (data->n_addr<N_ADDR_MAX)
+  {
+    data->addr_topic[data->n_addr] = (char *)malloc(strlen((const char *)data->topic_pre) + 5);
+    sprintf(data->addr_topic[data->n_addr], "%s/#", (char *)data->topic_pre);
+    data->n_addr++;
+  }
+  void mqtt_if_subscribe(struct mqtt_if_data *data);
+  _subscribeAllTraffic = true;
 }
 
 void mqtt_if_flush_reading_topic(struct mqtt_if_data *data)

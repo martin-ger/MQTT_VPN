@@ -5,7 +5,7 @@ extern "C" {
 #endif
 #include <lwip/ip.h>
 
-#define MQTTIF_DIRECT_INPUT 0
+#define MQTTIF_DIRECT_INPUT 1
 
 struct mqtt_if_data;
 
@@ -28,6 +28,7 @@ void mqtt_if_clear_flag(struct mqtt_if_data *data, int flag);
 void mqtt_if_clear_dns(void);
 void mqtt_if_add_dns(uint32_t addr);
 void mqtt_if_add_reading_topic(struct mqtt_if_data *data, ip4_addr_t addr);
+void mqtt_if_add_wildcard_reading_topic(struct mqtt_if_data *data);
 void mqtt_if_flush_reading_topic(struct mqtt_if_data *data);
 #ifdef __cplusplus
 }
